@@ -9,7 +9,7 @@ use plonky2::field::goldilocks_field::GoldilocksField;
 use plonky2::field::types::Field64;
 use plonky2::hash::poseidon::PoseidonHash;
 use plonky2::iop::generator::generate_partial_witness;
-use plonky2::iop::target::Target;
+use plonky2::iop::target::{BoolTarget, Target};
 use plonky2::iop::witness::PartialWitness;
 use plonky2::plonk::circuit_data::{CircuitConfig, CircuitData};
 use plonky2::plonk::config::Hasher;
@@ -57,8 +57,16 @@ fn pow_65537(
     modulus: &BigUintTarget,
 ) -> BigUintTarget {
     // TODO: Implement the circuit to raise value to the power 65537 mod modulus 
-    unimplemented!("TODO: Implement the circuit to raise value to the power 65537 mod modulus");
+    //unimplemented!("TODO: Implement the circuit to raise value to the power 65537 mod modulus");
     // HINT: 65537 = 2^16 + 1. Can you use this to exponentiate efficiently?
+    let mut base = builder.rem_biguint(value, modulus);
+    for _i in 1..=16 {
+        let squared = builder.mul_biguint(&base, &base);
+        base = builder.rem_biguint(&squared, modulus);
+    }
+
+    let result = builder.mul_biguint(&base, value);
+    builder.rem_biguint(&result, modulus)
 }
 
 /// Circuit which computes a hash target from a message
@@ -92,9 +100,18 @@ pub fn compute_hash(message: &[GoldilocksField]) -> BigUint {
 /// Pads the message hash with PKCS#1 v1.5 padding in the circuit
 /// Padding will look like: 0x00 || 0x01 || 0xff...ff || 0x00 || hash
 pub fn compute_padded_hash(message_hash: &BigUint) -> BigUint {
-    // TODO: Compute the value of the padded hash for witness generation
-    unimplemented!("TODO: Compute the value of the padded hash for witness generation");
-    // HINT: The size of the message hash is always HASH_BYTES
+    let mut prefix = BigUint::from(0x00u8);
+    prefix = prefix << 8;
+    prefix = prefix + BigUint::from(0x01u8);
+    prefix = prefix << 8;
+    prefix = prefix + BigUint::from(0xFFu8);
+    for _i in 0..(RSA_MODULUS_BYTES - 3 - HASH_BYTES - 1) {
+        prefix = prefix << 8;
+        prefix = prefix + BigUint::from(0xFFu8);
+    }
+    prefix = prefix << (HASH_BYTES * 8 + 8);
+    prefix = prefix + message_hash;
+    prefix
 }
 
 pub fn create_ring_circuit(max_num_pks: usize) -> RingSignatureCircuit {
@@ -115,19 +132,52 @@ pub fn create_ring_circuit(max_num_pks: usize) -> RingSignatureCircuit {
     builder.connect(modulus_is_zero.target, zero);
 
     // TODO: Add additional targets for the signature and public keys
-    unimplemented!("TODO: Add additional targets for the signature and public keys");
+    let mut pk_targets: Vec<BigUintTarget> = Vec::with_capacity(max_num_pks);
+    let mut valid_sig_targets: Vec<BoolTarget> = Vec::with_capacity(max_num_pks);
+    for _ in 0..max_num_pks {
+        pk_targets.push(builder.add_virtual_public_biguint_target(64));
+    }
+    let sig_target = builder.add_virtual_biguint_target(64);
 
     // TODO: Construct SNARK circuit for relation R 
-    unimplemented!("TODO: Build SNARK circuit for relation R");
+    //unimplemented!("TODO: Build SNARK circuit for relation R");
+    for pk_target in &pk_targets {
+        let rho_e_target = pow_65537(&mut builder,&sig_target, pk_target);
+        let rho_e_equal_padded_hash_target = builder.eq_biguint(&rho_e_target, &padded_hash_target); 
+        valid_sig_targets.push(rho_e_equal_padded_hash_target);
+    }
+
+    let mut combined_validation = valid_sig_targets[0];
+    for i in 1..valid_sig_targets.len() {
+        combined_validation = builder.or(combined_validation, valid_sig_targets[i]);
+    }
+    // let rho_e_target = pow_65537(&mut builder,&sig_target, &sig_pk_target);
+    // let rho_e_equal_padded_hash_target = builder.eq_biguint(&rho_e_target, &padded_hash_target); 
+    let one = builder.one();
+    builder.connect(combined_validation.target, one); 
+
+
+    // Debug: Check target indices
+    // println!("padded_hash_target first index: {:?}", padded_hash_target.limbs[0].0);
+    // println!("sig_pk_target first index: {:?}", sig_pk_target.limbs[0].0);
+    // println!("sig_target first index: {:?}", sig_target.limbs[0].0);
+    
+    // for i in 0..5 {
+    //     println!("pk_targets[{}] first index: {:?}", i, pk_targets[i].limbs[0].0);
+    // }
+    
+    // Additional check for the targets created in pow_65537
+    // let debug_result = pow_65537(&mut builder, &sig_target, &sig_pk_target);
+    // println!("pow_65537 result first index: {:?}", debug_result.limbs[0].0);
 
     // Build the circuit and return it
     let data = builder.build::<C>();
     return RingSignatureCircuit {
         circuit: data,
-        padded_hash_target,
-        pk_targets,
-        sig_target,
-        sig_pk_target,
+        padded_hash_target, // hash 
+        pk_targets, // [pk1, ph2, .. ph_n]
+        sig_target, // sig = hash ^ d, sk = d
+        sig_pk_target, // N, pk
     };
 }
 
@@ -152,10 +202,15 @@ pub fn create_ring_proof(
     let mut pw = PartialWitness::new();
 
     // Set the witness values in pw
-    pw.set_biguint_target(&circuit.sig_pk_target, &pk_val.n)?;
+    pw.set_biguint_target(&circuit.sig_pk_target.clone(), &pk_val.n)?; // N
 
     // TODO: Set your additional targets in the partial witness
-    unimplemented!("TODO: Set your additional targets in the partial witness");
+    //unimplemented!("TODO: Set your additional targets in the partial witness");
+    pw.set_biguint_target(&circuit.sig_target, &sig_val.sig)?;
+    pw.set_biguint_target(&circuit.padded_hash_target, &padded_hash)?; // PADDED_HASH
+    for (i, pk) in public_keys.iter().enumerate() {
+        pw.set_biguint_target(&circuit.pk_targets[i], &pk.n.clone())?;
+    }
 
     let proof = circuit.circuit.prove(pw)?;
     // check that the proof verifies
@@ -186,7 +241,8 @@ mod test {
 
         // Act
         let padded_hash = compute_padded_hash(&message_hash);
-
+        // println!("Computed (hex):  {:x}", padded_hash);
+        // println!("Expected (hex):  {:x}", expected_padded_hash);
         // Assert
         assert_eq!(
             padded_hash, expected_padded_hash,
