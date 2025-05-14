@@ -56,7 +56,7 @@ fn pow_65537(
     value: &BigUintTarget,
     modulus: &BigUintTarget,
 ) -> BigUintTarget {
-    // TODO: Implement the circuit to raise value to the power 65537 mod modulus 
+    // TODO: Implement the circuit to raise value to the power 65537 mod modulus
     //unimplemented!("TODO: Implement the circuit to raise value to the power 65537 mod modulus");
     // HINT: 65537 = 2^16 + 1. Can you use this to exponentiate efficiently?
     let mut base = builder.rem_biguint(value, modulus);
@@ -139,11 +139,11 @@ pub fn create_ring_circuit(max_num_pks: usize) -> RingSignatureCircuit {
     }
     let sig_target = builder.add_virtual_biguint_target(64);
 
-    // TODO: Construct SNARK circuit for relation R 
+    // TODO: Construct SNARK circuit for relation R
     //unimplemented!("TODO: Build SNARK circuit for relation R");
     for pk_target in &pk_targets {
         let rho_e_target = pow_65537(&mut builder,&sig_target, pk_target);
-        let rho_e_equal_padded_hash_target = builder.eq_biguint(&rho_e_target, &padded_hash_target); 
+        let rho_e_equal_padded_hash_target = builder.eq_biguint(&rho_e_target, &padded_hash_target);
         valid_sig_targets.push(rho_e_equal_padded_hash_target);
     }
 
@@ -152,20 +152,20 @@ pub fn create_ring_circuit(max_num_pks: usize) -> RingSignatureCircuit {
         combined_validation = builder.or(combined_validation, valid_sig_targets[i]);
     }
     // let rho_e_target = pow_65537(&mut builder,&sig_target, &sig_pk_target);
-    // let rho_e_equal_padded_hash_target = builder.eq_biguint(&rho_e_target, &padded_hash_target); 
+    // let rho_e_equal_padded_hash_target = builder.eq_biguint(&rho_e_target, &padded_hash_target);
     let one = builder.one();
-    builder.connect(combined_validation.target, one); 
+    builder.connect(combined_validation.target, one);
 
 
     // Debug: Check target indices
     // println!("padded_hash_target first index: {:?}", padded_hash_target.limbs[0].0);
     // println!("sig_pk_target first index: {:?}", sig_pk_target.limbs[0].0);
     // println!("sig_target first index: {:?}", sig_target.limbs[0].0);
-    
+    // test
     // for i in 0..5 {
     //     println!("pk_targets[{}] first index: {:?}", i, pk_targets[i].limbs[0].0);
     // }
-    
+
     // Additional check for the targets created in pow_65537
     // let debug_result = pow_65537(&mut builder, &sig_target, &sig_pk_target);
     // println!("pow_65537 result first index: {:?}", debug_result.limbs[0].0);
@@ -174,7 +174,7 @@ pub fn create_ring_circuit(max_num_pks: usize) -> RingSignatureCircuit {
     let data = builder.build::<C>();
     return RingSignatureCircuit {
         circuit: data,
-        padded_hash_target, // hash 
+        padded_hash_target, // hash
         pk_targets, // [pk1, ph2, .. ph_n]
         sig_target, // sig = hash ^ d, sk = d
         sig_pk_target, // N, pk
@@ -288,4 +288,3 @@ mod test {
         circuit.circuit.verify(proof).unwrap();
     }
 }
-
