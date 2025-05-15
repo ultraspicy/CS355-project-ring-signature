@@ -2,7 +2,7 @@ use super::biguint::{BigUintTarget, CircuitBuilderBiguint};
 use super::biguint::{CircuitBuilderBiguintFromField, WitnessBigUint};
 use crate::gadgets::serialize::serialize_circuit_data;
 use crate::rsa::{RSADigest, RSAKeypair, RSAPubkey};
-use num::BigUint;
+use num::{BigUint, One};
 use num::FromPrimitive;
 use num_traits::Zero;
 use plonky2::field::goldilocks_field::GoldilocksField;
@@ -56,17 +56,25 @@ fn pow_65537(
     value: &BigUintTarget,
     modulus: &BigUintTarget,
 ) -> BigUintTarget {
-    // TODO: Implement the circuit to raise value to the power 65537 mod modulus
-    //unimplemented!("TODO: Implement the circuit to raise value to the power 65537 mod modulus");
-    // HINT: 65537 = 2^16 + 1. Can you use this to exponentiate efficiently?
-    let mut base = builder.rem_biguint(value, modulus);
+    // First create the zero_biguint separately to avoid double mutable borrow
+    let zero_biguint = builder.zero_biguint();
+    let is_zero = builder.eq_biguint(modulus, &zero_biguint);
+    let not_zero = builder.not(is_zero);
+    let one = builder.constant_biguint(&BigUint::one());
+    let one_if_zero = builder.mul_biguint_by_bool(&one, is_zero);
+    let safe_modulus = builder.add_biguint(modulus, &one_if_zero);
+
+    let mut base = builder.rem_biguint(value, &safe_modulus);
     for _i in 1..=16 {
         let squared = builder.mul_biguint(&base, &base);
-        base = builder.rem_biguint(&squared, modulus);
+        base = builder.rem_biguint(&squared, &safe_modulus);
     }
 
     let result = builder.mul_biguint(&base, value);
-    builder.rem_biguint(&result, modulus)
+    let computed_result = builder.rem_biguint(&result, &safe_modulus);
+
+    // Zero out the result if the original modulus was zero
+    builder.mul_biguint_by_bool(&computed_result, not_zero)
 }
 
 /// Circuit which computes a hash target from a message
