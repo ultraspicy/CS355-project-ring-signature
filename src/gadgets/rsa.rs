@@ -141,24 +141,31 @@ pub fn create_ring_circuit(max_num_pks: usize) -> RingSignatureCircuit {
 
     // TODO: Add additional targets for the signature and public keys
     let mut pk_targets: Vec<BigUintTarget> = Vec::with_capacity(max_num_pks);
-    let mut valid_sig_targets: Vec<BoolTarget> = Vec::with_capacity(max_num_pks);
     for _ in 0..max_num_pks {
         pk_targets.push(builder.add_virtual_public_biguint_target(64));
     }
     let sig_target = builder.add_virtual_biguint_target(64);
 
     // TODO: Construct SNARK circuit for relation R
-    //unimplemented!("TODO: Build SNARK circuit for relation R");
-    for pk_target in &pk_targets {
-        let rho_e_target = pow_65537(&mut builder,&sig_target, pk_target);
-        let rho_e_equal_padded_hash_target = builder.eq_biguint(&rho_e_target, &padded_hash_target);
-        valid_sig_targets.push(rho_e_equal_padded_hash_target);
-    }
 
-    let mut combined_validation = valid_sig_targets[0];
-    for i in 1..valid_sig_targets.len() {
-        combined_validation = builder.or(combined_validation, valid_sig_targets[i]);
+    // cond1: check one of the signature equal sig_pk
+    let rho_e_target = pow_65537(&mut builder,&sig_target, &sig_pk_target);
+    let rho_e_equal_padded_hash_target = builder.eq_biguint(&rho_e_target, &padded_hash_target);
+    //valid_sig_targets.push(rho_e_equal_padded_hash_target);
+
+    // cond2: check the sig_pk is a valid public key
+    let mut pk_one_of_targets: Vec<BoolTarget> = Vec::with_capacity(max_num_pks);
+    for pk_target in &pk_targets {
+        pk_one_of_targets.push(builder.eq_biguint(pk_target, &sig_pk_target));
     }
+    let mut pk_exist_target = pk_one_of_targets[0];
+    for i in 1..pk_one_of_targets.len() {
+        pk_exist_target = builder.or(pk_exist_target, pk_one_of_targets[i]);
+    }
+    // final check: both condition one and condition; two are true
+    
+    let combined_validation = builder.and(rho_e_equal_padded_hash_target, pk_exist_target);
+  
     // let rho_e_target = pow_65537(&mut builder,&sig_target, &sig_pk_target);
     // let rho_e_equal_padded_hash_target = builder.eq_biguint(&rho_e_target, &padded_hash_target);
     let one = builder.one();
